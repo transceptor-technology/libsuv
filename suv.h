@@ -57,7 +57,8 @@ void suv_connect(
     uv_loop_t * loop,
     suv_connect_t * connect,
     suv_buf_t * buf,
-    struct sockaddr * addr);
+    struct sockaddr * addr,
+    uint32_t conn_timeout_sec );
 void suv_close(suv_buf_t * buf, const char * msg);
 
 suv_query_t * suv_query_create(siridb_req_t * req, const char * query);
