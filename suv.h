@@ -57,8 +57,7 @@ void suv_connect(
     uv_loop_t * loop,
     suv_connect_t * connect,
     suv_buf_t * buf,
-    struct sockaddr * addr,
-    uint32_t conn_timeout_sec );
+    struct sockaddr * addr);
 void suv_close(suv_buf_t * buf, const char * msg);
 
 suv_query_t * suv_query_create(siridb_req_t * req, const char * query);
@@ -71,6 +70,9 @@ suv_insert_t * suv_insert_create(
     size_t n);
 void suv_insert_destroy(suv_insert_t * insert);
 void suv_insert(suv_insert_t * insert);
+
+void set_socket_timeout(suv_buf_t *buf, uint32_t conn_timeout_sec);
+uint32_t get_socket_timeout_sec(const suv_buf_t *buf);
 
 const char * suv_strerror(int err_code);
 const char * suv_version(void);

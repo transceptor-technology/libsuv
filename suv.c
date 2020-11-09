@@ -19,63 +19,6 @@ static void suv__connect_cb(uv_connect_t * uvreq, int status);
 
 const long int MAX_PKG_SIZE = 209715200; // can be changed to anything you want
 
-// -------------------------------------------------------------------------------------------------------------
-#if ( !defined( _WIN32 ) && !defined( _WIN32_WCE ) ) || defined( __SYMBIAN32__ )
-#   include <errno.h>
-#   include <netinet/in.h>
-#   include <netinet/tcp.h>
-#   include <sys/socket.h>
-#elif defined( _WIN32 ) && !defined( __SYMBIAN32__ )
-#   include <winsock2.h>
-#   include <Mstcpip.h>
-#elif defined( _WIN32_WCE )
-#   include <winsock2.h>
-#endif
-
-#ifdef __APPLE__
-#include <TargetConditionals.h>
-#if TARGET_OS_MAC
-#   define MY_MACOSX
-#else
-#   define MY_IOS
-#endif
-#endif
-
-#ifndef INVALID_SOCKET
-#   define INVALID_SOCKET -1
-#endif
-
-int GetSocket(int af, int socktype, int proto, uint32_t conn_timeout_sec) 
-{
-#if defined( _WIN32 ) && !defined( __SYMBIAN32__ )
-    SOCKET fd;
-#else
-    int fd;
-#endif
-
-    if ((fd = socket(af, socktype, proto)) == INVALID_SOCKET) {
-        return 0;
-    }
-
-    // Set TCP connection timeout per-socket level.
-    // See [https://github.com/libuv/help/issues/54] for details.
-#if defined( _WIN32 ) && !defined( __SYMBIAN32__ )
-    setsockopt(fd, IPPROTO_TCP, TCP_MAXRT, (char*)&conn_timeout_sec, sizeof(conn_timeout_sec));
-#elif defined( MY_MACOSX )
-    // (billhoo) MacOS uses TCP_CONNECTIONTIMEOUT to do so.
-    setsockopt(fd, IPPROTO_TCP, TCP_CONNECTIONTIMEOUT, (char*)&conn_timeout_sec, sizeof(conn_timeout_sec));
-#elif defined( MY_IOS )
-    // (billhoo) Nothing to do right now.
-#else // Linux like systems
-    uint32_t conn_timeout_ms = conn_timeout_sec * 1000;
-    setsockopt(fd, IPPROTO_TCP, TCP_USER_TIMEOUT, (char*)&conn_timeout_ms, sizeof(conn_timeout_ms));
-#endif
-
-    return (int)fd;
-}
-// ----------------------------------------------------------------------------------------------------------------------
-
-
 /*
  * Return libsuv version info.
  */
@@ -153,12 +96,36 @@ void suv_connect_destroy(suv_connect_t * connect)
  * Use this function to connect to SiriDB. Always use the callback defined by
  * the request object parsed to suv_connect_create() for errors.
  */
+
+void set_socket_timeout(suv_buf_t *buf, uint32_t conn_timeout_sec)
+{
+    int fd;
+    uint32_t conn_timeout_ms = conn_timeout_sec * 1000;
+
+    uv_fileno((const uv_handle_t *)buf->siridb->data, &fd);
+
+    setsockopt(fd, IPPROTO_TCP, TCP_USER_TIMEOUT, &conn_timeout_ms, sizeof(conn_timeout_ms));
+}
+
+uint32_t get_socket_timeout_sec(const suv_buf_t *buf)
+{
+    int fd;
+    uint32_t conn_timeout_ms;
+    socklen_t len;
+
+    uv_fileno((const uv_handle_t *)buf->siridb->data, &fd);
+
+    len = sizeof(conn_timeout_ms);
+    getsockopt(fd, IPPROTO_TCP, TCP_USER_TIMEOUT, (char*)&conn_timeout_ms, &len);
+
+    return conn_timeout_ms / 1000;
+}
+
 void suv_connect(
     uv_loop_t * loop,
     suv_connect_t * connect,
     suv_buf_t * buf,
-    struct sockaddr * addr,
-    uint32_t conn_timeout_sec)
+    struct sockaddr * addr)
 {
     assert (connect->_req->data == connect);  /* bind connect to req->data */
 
@@ -180,11 +147,6 @@ void suv_connect(
     buf->siridb->data = (void *) tcp_;
 
     uv_tcp_init(loop, tcp_);
-
-    // --------------------------------------------------------
-    int fd = GetSocket(PF_INET, SOCK_STREAM, IPPROTO_TCP, conn_timeout_sec);
-    uv_tcp_open(tcp_, fd);
-    // --------------------------------------------------------
 
     uvreq->data = (void *) connect->_req;
     uv_tcp_connect(uvreq, tcp_, addr, suv__connect_cb);
